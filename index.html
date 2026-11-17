@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>座標検索マップ</title>
+  <link rel="stylesheet" href="https://unpkg.com" />
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    #map { height: 400px; width: 100%; margin-top: 15px; }
+    input { padding: 8px; width: 150px; }
+    button { padding: 8px 15px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h3>座標から場所を特定</h3>
+  <input type="text" id="lat" placeholder="緯度 (例: 35.6812)" value="35.6812">
+  <input type="text" id="lng" placeholder="経度 (例: 139.7671)" value="139.7671">
+  <button onclick="searchLocation()">場所を表示</button>
+  <p id="address">住所: ここに表示されます</p>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com"></script>
+  <script>
+    const map = L.map('map').setView([35.6812, 139.7671], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    let marker = L.marker([35.6812, 139.7671]).addTo(map);
+
+    async function searchLocation() {
+      const lat = parseFloat(document.getElementById('lat').value);
+      const lng = parseFloat(document.getElementById('lng').value);
+      if (isNaN(lat) || isNaN(lng)) return alert("正しい数値を入力してください");
+
+      // 地図とピンを移動
+      map.setView([lat, lng], 16);
+      marker.setLatLng([lat, lng]);
+
+      // 座標から住所を取得（逆ジオコーディング）
+      const res = await fetch(`https://openstreetmap.org{lat}&lon=${lng}`);
+      const data = await res.json();
+      document.getElementById('address').innerText = "住所: " + (data.display_name || "特定できませんでした");
+    }
+  </script>
+</body>
+</html>
