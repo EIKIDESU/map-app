@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>座標検索マップ（完全内蔵版）</title>
+  <title>座標検索マップ（通信診断・代替描画つき）</title>
   <style>
     body { font-family: sans-serif; margin: 15px; background: #f4f6f8; color: #333; }
     .panel { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 12px; }
@@ -11,20 +11,20 @@
     input { padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; flex: 1; min-width: 130px; }
     button { padding: 10px 18px; font-size: 15px; font-weight: bold; background: #1a73e8; color: white; border: none; border-radius: 4px; cursor: pointer; }
     button.sub { background: #555; padding: 8px 14px; }
-    /* 地図を表示する枠（3×3のタイルを並べる） */
-    .map-container { position: relative; width: 100%; max-width: 600px; height: 450px; overflow: hidden; border: 2px solid #333; border-radius: 8px; background: #ddd; margin: auto; }
-    #tileGrid { position: absolute; width: 768px; height: 768px; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; grid-template-columns: repeat(3, 256px); grid-template-rows: repeat(3, 256px); }
+    .map-container { position: relative; width: 100%; max-width: 600px; height: 420px; overflow: hidden; border: 2px solid #333; border-radius: 8px; background: #e8ecef; margin: auto; }
+    #tileGrid { position: absolute; width: 768px; height: 768px; left: 50%; top: 50%; display: grid; grid-template-columns: repeat(3, 256px); grid-template-rows: repeat(3, 256px); z-index: 2; }
     #tileGrid img { width: 256px; height: 256px; display: block; }
-    /* 中央に立つ赤いピン */
+    #fallbackCanvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 1; }
     .pin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -100%); font-size: 36px; z-index: 10; pointer-events: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5)); }
-    .controls { display: flex; justify-content: center; gap: 10px; margin-top: 10px; align-items: center; }
-    #info { font-size: 13px; color: #555; margin-top: 8px; }
+    .controls { display: flex; justify-content: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    #info { font-size: 13px; color: #333; margin-top: 8px; font-weight: bold; }
+    #diag { font-size: 12px; color: #d93025; margin-top: 4px; }
   </style>
 </head>
 <body>
 
   <div class="panel">
-    <strong>📍 座標から場所を特定（ブロック回避・内蔵版）</strong>
+    <strong>📍 座標検索マップ</strong>
     <div class="row">
       <input type="text" id="both" placeholder="まとめて貼付 (例: 35.6812, 139.7671)" oninput="autoSplit()">
     </div>
@@ -34,26 +34,48 @@
       <button onclick="renderMap()">場所を表示</button>
     </div>
     <div id="info">ズーム倍率: 15</div>
+    <div id="diag"></div>
   </div>
 
-  <!-- 地図表示エリア -->
-  <div class="map-container">
+  <div class="map-container" id="mapBox">
+    <!-- 外部通信が遮断されていても動く内蔵レーダー図 -->
+    <canvas id="fallbackCanvas"></canvas>
+    <!-- 外部地図タイル -->
     <div id="tileGrid"></div>
     <div class="pin">📍</div>
   </div>
 
-  <!-- ズーム切り替えボタン -->
   <div class="controls">
     <button class="sub" onclick="changeZoom(-1)">－ 広域</button>
     <button class="sub" onclick="changeZoom(1)">＋ 詳細</button>
     <select id="mapSource" onchange="renderMap()" style="padding: 8px; font-size: 14px; border-radius: 4px;">
-      <option value="gsi">国土地理院地図（日本国内・高精細）</option>
-      <option value="osm">OpenStreetMap（全世界対応）</option>
+      <option value="gsi_std">1. 国土地理院（標準地図）</option>
+      <option value="gsi_pale">2. 国土地理院（淡色地図）</option>
+      <option value="osm">3. OpenStreetMap</option>
+      <option value="esri">4. Esri 世界地図（衛星・道路）</option>
+      <option value="carto">5. CARTO 地図</option>
     </select>
   </div>
 
   <script>
     let currentZoom = 15;
+
+    // 日本の主要都市・拠点データ（オフライン位置特定用）
+    const landmarks = [
+      { name: "札幌駅", lat: 43.0686, lng: 141.3508 },
+      { name: "仙台駅", lat: 38.2601, lng: 140.8824 },
+      { name: "福島駅", lat: 37.7541, lng: 140.4592 },
+      { name: "会津若松駅", lat: 37.5085, lng: 139.9301 },
+      { name: "東京駅", lat: 35.6812, lng: 139.7671 },
+      { name: "新宿駅", lat: 35.6896, lng: 139.7006 },
+      { name: "横浜駅", lat: 35.4658, lng: 139.6223 },
+      { name: "名古屋駅", lat: 35.1709, lng: 136.8815 },
+      { name: "京都駅", lat: 34.9858, lng: 135.7588 },
+      { name: "大阪駅", lat: 34.7025, lng: 135.4959 },
+      { name: "広島駅", lat: 34.3977, lng: 132.4753 },
+      { name: "博多駅", lat: 33.5897, lng: 130.4207 },
+      { name: "那覇空港", lat: 26.2064, lng: 127.6465 }
+    ];
 
     function clean(str) {
       return str.replace(/[０-９．－]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9.-]/g, '');
@@ -63,14 +85,67 @@
       const val = document.getElementById('both').value;
       const parts = val.split(/[,、\s　]+/);
       if (parts.length >= 2) {
-        document.getElementById('lat').value = clean(parts);
-        document.getElementById('lng').value = clean(parts);
+        document.getElementById('lat').value = clean(parts[0]);
+        document.getElementById('lng').value = clean(parts[1]);
       }
     }
 
     function changeZoom(delta) {
       currentZoom = Math.min(18, Math.max(5, currentZoom + delta));
       renderMap();
+    }
+
+    function getTileUrl(source, z, x, y) {
+      if (source === 'gsi_std') return `https://gsi.go.jp{z}/${x}/${y}.png`;
+      if (source === 'gsi_pale') return `https://gsi.go.jp{z}/${x}/${y}.png`;
+      if (source === 'osm') return `https://openstreetmap.org{z}/${x}/${y}.png`;
+      if (source === 'esri') return `https://arcgisonline.com{z}/${y}/${x}`;
+      if (source === 'carto') return `https://cartocdn.com{z}/${x}/${y}.png`;
+    }
+
+    // 外部画像がブロックされた場合でも周辺都市との距離・方角を描画する
+    function drawFallbackRadar(lat, lng, z) {
+      const canvas = document.getElementById('fallbackCanvas');
+      const box = document.getElementById('mapBox');
+      canvas.width = box.clientWidth;
+      canvas.height = box.clientHeight;
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = "#eef2f5";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // グリッド線
+      ctx.strokeStyle = "#d0d7de";
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      // 最も近い主要都市を計算して表示
+      let nearest = null;
+      let minDist = Infinity;
+      landmarks.forEach(lm => {
+        const dLat = (lm.lat - lat) * 111; // km換算
+        const dLng = (lm.lng - lng) * 91;
+        const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+        if (dist < minDist) {
+          minDist = dist;
+          nearest = { ...lm, dist: dist.toFixed(1), dLat, dLng };
+        }
+      });
+
+      ctx.fillStyle = "#444";
+      ctx.font = "14px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(`座標: ${lat.toFixed(5)}, ${lng.toFixed(5)}`, canvas.width / 2, 30);
+      if (nearest) {
+        const dirY = nearest.dLat > 0 ? "南" : "北";
+        const dirX = nearest.dLng > 0 ? "西" : "東";
+        ctx.fillText(`最寄り拠点「${nearest.name}」から 約 ${nearest.dist} km（${dirY}${dirX}方向）`, canvas.width / 2, canvas.height - 20);
+      }
     }
 
     function renderMap() {
@@ -82,38 +157,44 @@
         return;
       }
 
+      drawFallbackRadar(lat, lng, currentZoom);
+
       const z = currentZoom;
       const n = Math.pow(2, z);
-      // 緯度経度を地図タイルの座標（ピクセル単位）に変換
       const xExact = ((lng + 180) / 360) * n;
       const latRad = (lat * Math.PI) / 180;
       const yExact = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
 
       const xTile = Math.floor(xExact);
       const yTile = Math.floor(yExact);
-
-      // タイル内のズレ（ピクセル）を計算してピンが正確な位置に来るように調整
       const offsetX = (xExact - xTile) * 256;
       const offsetY = (yExact - yTile) * 256;
 
       const grid = document.getElementById('tileGrid');
       grid.innerHTML = '';
-      // 中央のタイル(1,1)の基準点からズレ分だけ移動させる
       grid.style.transform = `translate(calc(-256px - ${offsetX}px), calc(-256px - ${offsetY}px))`;
 
       const source = document.getElementById('mapSource').value;
+      const diag = document.getElementById('diag');
+      diag.innerText = "";
+      let errorCount = 0;
 
-      // 周囲3x3（計9枚）の地図画像を並べる
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           const tx = xTile + dx;
           const ty = yTile + dy;
           const img = document.createElement('img');
-          if (source === 'gsi') {
-            img.src = `https://gsi.go.jp{z}/${tx}/${ty}.png`;
-          } else {
-            img.src = `https://openstreetmap.org{z}/${tx}/${ty}.png`;
-          }
+          // リファラー制限を回避する設定を追加
+          img.referrerPolicy = "no-referrer";
+          img.src = getTileUrl(source, z, tx, ty);
+
+          img.onerror = function() {
+            this.style.visibility = "hidden";
+            errorCount++;
+            if (errorCount >= 5) {
+              diag.innerText = "※この地図サーバーへの通信がネットワークで遮断されています。下のメニューから別の地図（2〜5）に切り替えてみてください。";
+            }
+          };
           grid.appendChild(img);
         }
       }
@@ -121,7 +202,6 @@
       document.getElementById('info').innerText = `表示中: 緯度 ${lat}, 経度 ${lng}（ズーム: ${z}）`;
     }
 
-    // 初期表示
     window.onload = renderMap;
   </script>
 </body>
