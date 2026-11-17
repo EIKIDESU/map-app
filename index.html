@@ -2,44 +2,86 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>座標検索マップ</title>
-  <link rel="stylesheet" href="https://unpkg.com" />
+  <!-- 信頼性の高いCloudflareのCDNから地図プログラムを読み込む -->
+  <link rel="stylesheet" href="https://cloudflare.com" />
   <style>
-    body { font-family: sans-serif; margin: 20px; }
-    #map { height: 400px; width: 100%; margin-top: 15px; }
-    input { padding: 8px; width: 150px; }
-    button { padding: 8px 15px; cursor: pointer; }
+    body { font-family: sans-serif; margin: 15px; background: #f8f9fa; }
+    .panel { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 12px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    input { padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; flex: 1; min-width: 130px; }
+    button { padding: 10px 20px; font-size: 16px; font-weight: bold; background: #1a73e8; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #1557b0; }
+    #map { height: 450px; width: 100%; border-radius: 8px; border: 1px solid #ccc; background: #e5e3df; }
+    #status { font-size: 13px; color: #555; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <h3>座標から場所を特定</h3>
-  <input type="text" id="lat" placeholder="緯度 (例: 35.6812)" value="35.6812">
-  <input type="text" id="lng" placeholder="経度 (例: 139.7671)" value="139.7671">
-  <button onclick="searchLocation()">場所を表示</button>
-  <p id="address">住所: ここに表示されます</p>
+
+  <div class="panel">
+    <strong>📍 座標を入力して場所を特定</strong>
+    <div class="row">
+      <input type="text" id="both" placeholder="まとめて貼付 (例: 35.6812, 139.7671)" oninput="autoSplit()">
+    </div>
+    <div class="row">
+      <input type="text" id="lat" placeholder="緯度 (例: 35.6812)" value="35.6812">
+      <input type="text" id="lng" placeholder="経度 (例: 139.7671)" value="139.7671">
+      <button onclick="goLocation()">ピンを表示</button>
+    </div>
+    <div id="status">初期位置（東京駅）を表示中</div>
+  </div>
+
+  <!-- ここに地図が直接描画されます -->
   <div id="map"></div>
 
-  <script src="https://unpkg.com"></script>
+  <script src="https://cloudflare.com"></script>
   <script>
-    const map = L.map('map').setView([35.6812, 139.7671], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-    let marker = L.marker([35.6812, 139.7671]).addTo(map);
+    let map, marker;
 
-    async function searchLocation() {
-      const lat = parseFloat(document.getElementById('lat').value);
-      const lng = parseFloat(document.getElementById('lng').value);
-      if (isNaN(lat) || isNaN(lng)) return alert("正しい数値を入力してください");
+    // ページ読み込み完了後に確実に地図を作る
+    window.onload = function() {
+      if (typeof L === 'undefined') {
+        document.getElementById('status').innerText = "エラー: 地図プログラムの読み込みがネットワークでブロックされています。";
+        return;
+      }
 
-      // 地図とピンを移動
+      map = L.map('map').setView([35.6812, 139.7671], 15);
+
+      // Chromeでブロックされにくい高速・高精細な地図タイルを使用
+      L.tileLayer('https://{s}://{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        maxZoom: 19
+      }).addTo(map);
+
+      marker = L.marker([35.6812, 139.7671]).addTo(map);
+    };
+
+    function clean(str) {
+      return str.replace(/[０-９．－]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9.-]/g, '');
+    }
+
+    function autoSplit() {
+      const val = document.getElementById('both').value;
+      const parts = val.split(/[,、\s　]+/);
+      if (parts.length >= 2) {
+        document.getElementById('lat').value = clean(parts);
+        document.getElementById('lng').value = clean(parts);
+      }
+    }
+
+    function goLocation() {
+      const lat = parseFloat(clean(document.getElementById('lat').value));
+      const lng = parseFloat(clean(document.getElementById('lng').value));
+
+      if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        alert("正しい緯度（-90〜90）と経度（-180〜180）を入力してください");
+        return;
+      }
+
       map.setView([lat, lng], 16);
       marker.setLatLng([lat, lng]);
-
-      // 座標から住所を取得（逆ジオコーディング）
-      const res = await fetch(`https://openstreetmap.org{lat}&lon=${lng}`);
-      const data = await res.json();
-      document.getElementById('address').innerText = "住所: " + (data.display_name || "特定できませんでした");
+      document.getElementById('status').innerText = `表示中の座標: 緯度 ${lat} / 経度 ${lng}`;
     }
   </script>
 </body>
